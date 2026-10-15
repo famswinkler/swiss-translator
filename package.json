@@ -1,0 +1,19 @@
+{
+  "name": "sermon-translator",
+  "version": "2.0.0",
+  "description": "On-device Swiss German -> English live captions (Whisper in the browser via transformers.js). Pure static site.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "serve": "node serve.mjs dist 8080",
+    "test:node": "node tests/node-pipeline-test.mjs",
+    "test:browser": "node tests/browser-test.mjs",
+    "test:offline": "node tests/offline-test.mjs"
+  },
+  "devDependencies": {
+    "@huggingface/transformers": "4.3.1",
+    "wavefile": "^11.0.0",
+    "puppeteer-core": "^24.0.0"
+  }
+}

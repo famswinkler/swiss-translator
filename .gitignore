@@ -1,0 +1,22 @@
+node_modules
+# built in CI by .github/workflows/pages.yml (npm ci && npm run build)
+dist
+# downloaded AI model files (hundreds of MB) - never commit
+.model-cache
+*.onnx
+*.onnx_data
+*.safetensors
+*.gguf
+*.bin
+# secrets / local config
+.env
+.env.*
+*.pem
+*.key
+.DS_Store
+*.log
+# recordings (keep the small test sample in tests/audio)
+recordings/
+*.webm
+*.m4a
+*.mp3
