@@ -39,8 +39,11 @@ const device = {
   hasWebGPU: false, f16: false
 };
 
-// Test hooks (used by the automated headless-Chrome test; harmless otherwise)
-window.__results = [];
+// Test hook for the automated headless-Chrome test (tests/browser-test.mjs opens the page with ?test).
+// Only then do we keep a list of all captions in window.__results. In normal use there is no list,
+// so a long sermon does not fill up the memory (the screen itself keeps only MAX_LINES sentences).
+const TEST_MODE = qs.has('test');
+if (TEST_MODE) window.__results = [];
 
 /* ---------------- 2. CAPTIONS AND STATUS ---------------- */
 function status(msg, isError) { ui.status.textContent = msg; ui.status.classList.toggle('err', !!isError); }
@@ -63,7 +66,7 @@ function addCaption(english, german) {
   ui.log.appendChild(div);
   while (ui.log.children.length > MAX_LINES) ui.log.removeChild(ui.log.firstChild);
   scrollToLive();
-  window.__results.push({ english, german });
+  if (TEST_MODE) window.__results.push({ english, german });
   if (english) readAloud(english);
 }
 function hint(text) { ui.interimEn.textContent = text || ''; }
@@ -73,11 +76,21 @@ let worker = null, workerReady = false, loadedKey = '';
 let busy = false, nextId = 1, loading = null;
 const queue = [];   // audio pieces waiting for the model
 
+/** Use the graphics chip (WebGPU)? Only on computers that have it, and not when the URL says ?device=wasm. */
+function canUseGPU() {
+  return device.hasWebGPU && !device.isMobile && qs.get('device') !== 'wasm';
+}
+/** Which download of a model fits this device: WebGPU (with f16 if the chip supports it) or WASM (CPU). */
+function pickVariant(m) {
+  if (!canUseGPU()) return m.wasm;
+  return (device.f16 && m.webgpuF16) || m.webgpu;
+}
+
 function currentConfig() {
   const engine = ui.engine.value, modelKey = ui.modelSetting.value;
   const m = SPEECH_MODELS[modelKey];
-  const useGPU = device.hasWebGPU && !device.isMobile && qs.get('device') !== 'wasm';
-  const variant = useGPU ? ((device.f16 && m.webgpuF16) || m.webgpu) : m.wasm;
+  const useGPU = canUseGPU();
+  const variant = pickVariant(m);
   const task = m.canTranslateDirectly ? ui.task.value : 'mt';
   if (engine === 'webspeech') {   // fallback only needs the text translator
     return { key: 'webspeech', modelId: null, useTranslator: true, device: 'wasm', mb: TRANSLATOR_MODEL.mb };
@@ -185,9 +198,6 @@ function stopMic() {
   micStream = audioCtx = null;
 }
 async function restartMic() { stopMic(); try { await startMic(); } catch (e) { status('Could not restart microphone: ' + e.message, true); } }
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && running && audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
-});
 
 /** Feed an audio file through exactly the same pipeline (for testing without a microphone). */
 async function testWithFile(file) {
@@ -263,7 +273,13 @@ async function keepAwake() {
   try { if ('wakeLock' in navigator && running && document.visibilityState === 'visible') wakeLock = await navigator.wakeLock.request('screen'); }
   catch (e) { /* not supported: set Auto-Lock to Never */ }
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+// One listener for "the app is visible again" (after screen lock or switching apps):
+// 1) wake up the microphone audio if the phone paused it, 2) ask again to keep the screen awake.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (running && audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
+  keepAwake();
+});
 
 /* ---------------- 7. BUTTONS, SETTINGS, START-UP ---------------- */
 function setUI(on) {
@@ -306,8 +322,7 @@ ui.clear.onclick = () => { ui.log.innerHTML = ''; hint(''); };
 ui.testFile.onchange = () => ui.testFile.files[0] && testWithFile(ui.testFile.files[0]).catch(e => status(e.message, true));
 
 function describeModel(key) {
-  const m = SPEECH_MODELS[key], useGPU = device.hasWebGPU && !device.isMobile;
-  const v = useGPU ? ((device.f16 && m.webgpuF16) || m.webgpu) : m.wasm;
+  const m = SPEECH_MODELS[key], v = pickVariant(m);
   return `${m.note} Download ≈ ${v.mb + TRANSLATOR_MODEL.mb} MB (speech ${v.mb} MB + translator ${TRANSLATOR_MODEL.mb} MB).`;
 }
 function syncModel(key) {
@@ -350,7 +365,10 @@ async function init() {
   // Fill the model menus
   for (const sel of [ui.modelPick, ui.modelSetting])
     for (const [key, m] of Object.entries(SPEECH_MODELS)) sel.add(new Option(m.label, key));
-  syncModel(qs.get('model') || saved('model', defaultModelKey(device)));
+  // The model from the URL (?model=) or from the last visit must be one we know.
+  // An unknown name (typo, or a model that was removed) would crash the start-up, so use the default instead.
+  const wantedModel = qs.get('model') || saved('model', defaultModelKey(device));
+  syncModel(Object.hasOwn(SPEECH_MODELS, wantedModel) ? wantedModel : defaultModelKey(device));
   ui.task.value = SPEECH_MODELS[ui.modelSetting.value].canTranslateDirectly ? saved('task', 'mt') : 'mt';
   ui.engine.value = saved('engine', 'whisper');
   ui.mode.value = qs.get('mode') || saved('mode', 'sermon'); applyMode(ui.mode.value);
