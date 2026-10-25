@@ -136,7 +136,10 @@ function loadModels() {
       } else if (data.type === 'result') {
         onResult(data);
       } else if (data.type === 'error') {
-        status('Model error: ' + data.message, true);
+        // A real error from the model (for example out of memory). We show it instead of hiding it.
+        // If the model was already running, only this one piece of speech is lost and we go on with the next.
+        console.error('Worker error:', data.message);
+        status((workerReady ? 'Error in one piece of speech (skipped): ' : 'Model error: ') + data.message, true);
         if (!workerReady) { ui.setup.hidden = false; ui.toggle.disabled = true; reject(new Error(data.message)); }
         busy = false; pump();
       }

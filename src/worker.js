@@ -90,7 +90,13 @@ self.onmessage = async ({ data }) => {
           return_timestamps: true          // in our tests this cut off invented trailing text
         });
         text = cleanRepeats(r.text || '');
-      } catch (e) { text = ''; }           // the library throws on empty output – treat as silence
+      } catch (e) {
+        // A real error (out of memory, broken model file, ...). Do NOT hide it as "silence":
+        // send it to the app, which shows it and then goes on with the next piece of speech.
+        // (Checked with transformers.js 4.3.1: empty or silent audio does NOT throw, it just returns text.)
+        self.postMessage({ type: 'error', id: data.id, message: e && e.message ? e.message : String(e) });
+        return;
+      }
       // Whisper's typical "silence" phrases – ignore them.
       if (/^(untertitel|vielen dank|thank you|thanks for watching|\.|…|\[.*\]|\(.*\))\W*$/i.test(text)) text = '';
       const german = direct ? '' : text;

@@ -15,7 +15,7 @@ const tr = mt === 'mt' ? await pipeline('translation', 'Xenova/opus-mt-de-en', {
 const t0 = Date.now();
 for (const seg of segs) {
   const sec = seg.length / 16000;
-  let r; try { r = await asr(seg, { task, language: 'german', max_new_tokens: Math.min(128, Math.ceil(sec * 4) + 6), no_repeat_ngram_size: 4, return_timestamps: true }); } catch (e) { r = { text: '' }; }
+  let r; try { r = await asr(seg, { task, language: 'german', max_new_tokens: Math.min(128, Math.ceil(sec * 4) + 6), no_repeat_ngram_size: 4, return_timestamps: true }); } catch (e) { console.log('ASR ERROR:', e.message); r = { text: '' }; }   // show real errors, like the app
   let text = cleanRepeats(r.text);
   let en = text;
   if (tr && text) en = cleanRepeats((await tr(text, { max_new_tokens: Math.ceil(text.split(' ').length * 2.5) + 10, no_repeat_ngram_size: 4 }))[0].translation_text);
