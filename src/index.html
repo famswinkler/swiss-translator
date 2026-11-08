@@ -9,12 +9,12 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="styles.css">
-<title>Sermon Translator – Swiss German → English (on-device)</title>
+<title>Sermon Translator – Swiss German → English</title>
 </head>
 <body class="mode-sermon">
 <main id="app">
   <header>
-    <h1>🇨🇭 → 🇬🇧 <span id="modeTitle">Sermon</span> <small class="badge">on-device</small></h1>
+    <h1>🇨🇭 → 🇬🇧 <span id="modeTitle">Sermon</span> <small class="badge" id="badge">on-device</small></h1>
     <button id="settingsBtn" aria-expanded="false" aria-controls="settings" title="Settings">⚙︎</button>
   </header>
 
@@ -27,6 +27,10 @@
     <p id="modelNote" class="note"></p>
     <p id="deviceInfo" class="note"></p>
     <button id="downloadBtn" class="big">⬇ Download &amp; prepare</button>
+    <p class="note"><b>Mostly Swiss dialect?</b> The on-device models often get dialect wrong.
+       A much larger model in the cloud (Google Gemini) usually copes better, but it needs internet and a
+       free Gemini API key, and the audio is sent to Google.</p>
+    <button id="useCloudBtn">☁ Use the cloud engine instead</button>
     <div id="progress" hidden>
       <div class="bar"><div id="barFill"></div></div>
       <p id="progressText" class="note">Starting…</p>
@@ -44,11 +48,19 @@
     <label>Listening engine
       <select id="engine">
         <option value="whisper">On-device Whisper (private, offline)</option>
+        <option value="gemini">Cloud: Google Gemini – for Swiss dialect (needs internet + API key, audio goes to Google)</option>
         <option value="webspeech">Browser speech – may send audio to Apple/Google servers</option>
       </select>
     </label>
-    <label>Model <select id="modelSetting"></select></label>
-    <label>Translation method
+    <label class="cloudOnly">Gemini API key
+      <input type="password" id="geminiKey" autocomplete="off" spellcheck="false" placeholder="paste key here">
+    </label>
+    <p class="note cloudOnly">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.
+       It is stored only on this device and sent only to Google. Free keys: Google may use the audio to improve
+       its products and there are daily limits. With billing switched on it does not; cost is well under US$1 per hour of speech.</p>
+    <label class="cloudOnly">Gemini model <select id="geminiModel"></select></label>
+    <label class="localOnly">Model <select id="modelSetting"></select></label>
+    <label class="localOnly">Translation method
       <select id="task">
         <option value="mt">German text → English translator (recommended)</option>
         <option value="translate">Whisper translates directly (smaller download)</option>

@@ -9,6 +9,8 @@
  * No AI model is needed, so it is fast on any phone. (Silero VAD would be more accurate
  * but needs another model download.)
  *
+ * Batcher (cloud engine only) joins short pieces into one request of at least ~6 s.
+ *
  * Works in the browser and in Node (used by the test script).
  */
 export class Segmenter {
@@ -78,6 +80,27 @@ export class Segmenter {
       this.onSegment(out, { reason });
     }
     if (!keepState) { this.inSpeech = false; this.frames = []; this.energies = []; this.silentFrames = 0; this.speechFrames = 0; }
+  }
+}
+
+/** Cloud: join short pieces of speech into one request of at least ~6 s (fewer requests, so the
+ *  per-minute limits of Gemini are not hit, and more context for the model). */
+export class Batcher {
+  constructor(send, minSec = 6, waitMs = 1500) { Object.assign(this, { send, minSec, waitMs, parts: [], sec: 0, timer: null }); }
+  push(piece) {
+    this.parts.push(piece); this.sec += piece.length / 16000;
+    clearTimeout(this.timer);
+    if (this.sec >= this.minSec) this.flush();
+    else this.timer = setTimeout(() => this.flush(), this.waitMs);   // a longer pause: send what we have
+  }
+  flush() {
+    clearTimeout(this.timer);
+    if (!this.parts.length) return;
+    const gap = 4800;   // 0.3 s of silence between the joined pieces
+    const out = new Float32Array(this.parts.reduce((a, p) => a + p.length, 0) + gap * (this.parts.length - 1));
+    let o = 0; for (const p of this.parts) { out.set(p, o); o += p.length + gap; }
+    this.parts = []; this.sec = 0;
+    this.send(out);
   }
 }
 

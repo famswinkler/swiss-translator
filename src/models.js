@@ -27,11 +27,13 @@ export const SPEECH_MODELS = {
   swiss: {
     label: 'Swiss German specialist – Whisper turbo (laptops)',
     id: 'onnx-community/whisper-large-v3-turbo-swiss-german-ONNX',
-    wasm:   { dtype: { encoder_model: 'q4', decoder_model_merged: 'q4' }, mb: 759 },
-    webgpu: { dtype: { encoder_model: 'q4', decoder_model_merged: 'q4' }, mb: 759 },
-    webgpuF16: { dtype: { encoder_model: 'q4f16', decoder_model_merged: 'q4f16' }, mb: 563 },
+    // 8-bit, not 4-bit: in our test (tests/audio/zurich16k.wav) 4-bit made more word errors
+    // ("geholt" for "gehüllt", "schliesslein", "sein mantel abzogen") at the same speed.
+    wasm:   { dtype: { encoder_model: 'q8', decoder_model_merged: 'q8' }, mb: 1083 },
+    webgpu: { dtype: { encoder_model: 'q4', decoder_model_merged: 'q4' }, mb: 759 },          // GPUs without 16-bit support (rare)
+    webgpuF16: { dtype: { encoder_model: 'fp16', decoder_model_merged: 'fp16' }, mb: 1618 },  // full quality on the graphics chip
     canTranslateDirectly: false,   // fine-tuned to write German only, so we always use the translator model
-    note: 'Trained on Swiss German (Flurin17, licence CC BY-NC 4.0 = non-commercial). Best understanding, big download. Needs a laptop WITH WebGPU: on CPU only it is far slower than real time.'
+    note: 'Trained on Swiss German (Flurin17, licence CC BY-NC 4.0 = non-commercial). Better with dialect than Fast/Better, but still makes mistakes (for dialect also try the cloud engine in ⚙︎). Big download. Needs a laptop WITH WebGPU: on CPU only it is far slower than real time.'
   }
 };
 

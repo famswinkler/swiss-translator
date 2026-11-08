@@ -7,6 +7,9 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:
 header{display:flex;align-items:center;justify-content:space-between;padding:8px 0}
 h1{font-size:1.1rem;margin:0;font-weight:600}
 .badge{font-size:.7rem;background:#1d5;color:#000;border-radius:6px;padding:2px 6px;vertical-align:middle}
+input[type=password]{font-size:1rem;border-radius:10px;border:1px solid #444;background:#222;color:var(--fg);padding:10px 12px;flex:1;min-width:12em}
+a{color:#8cf}
+body:not(.engine-gemini) .cloudOnly,body.engine-gemini .localOnly{display:none!important}
 select,button{font-size:1rem;border-radius:10px;border:1px solid #444;background:#222;color:var(--fg);padding:10px 12px;max-width:100%}
 #setup,#settings{display:flex;flex-direction:column;gap:10px;background:#151515;border-radius:12px;padding:14px;margin-bottom:8px}
 #setup h2{margin:0;font-size:1.3rem}

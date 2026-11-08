@@ -5,8 +5,8 @@
  * 3. Leave model downloads alone: transformers.js stores them itself in the Cache API
  *    ("transformers-cache"), so they also work offline after the first download.
  */
-const CACHE = 'sermon-translator-v3';
-const SHELL = ['./', './index.html', './app.js', './vad.js', './models.js', './worker.js', './audio-worklet.js',
+const CACHE = 'sermon-translator-v4';
+const SHELL = ['./', './index.html', './app.js', './vad.js', './models.js', './worker.js', './cloud.js', './truecase.js', './audio-worklet.js',
   './styles.css', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png',
   './lib/transformers.min.js'];
 
