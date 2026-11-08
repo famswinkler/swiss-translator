@@ -1,8 +1,10 @@
 /* =====================================================================
  * Sermon Translator – Swiss German -> English, running ON THE DEVICE.
  *
- * Nothing is sent to a server: the microphone audio is turned into text by an
+ * By default nothing is sent to a server: the microphone audio is turned into text by an
  * AI model (OpenAI's open "Whisper", run by transformers.js) inside the browser.
+ * Optional cloud engine (cloud.js): Google Gemini, much larger, for Swiss dialect. Needs the
+ * user's own API key and sends the audio to Google.
  *
  * Flow:
  *   microphone -> audio-worklet.js (16 kHz) -> vad.js (cut at pauses)
@@ -14,12 +16,13 @@
  *   2. Captions (auto-scroll), status, level meter
  *   3. The AI worker: loading models with a progress bar, sending audio
  *   4. Microphone capture (getUserMedia + AudioWorklet), test with a file
- *   5. Optional fallback: browser Web Speech API (may be cloud-based!)
+ *   5. Optional engines: Google Gemini (cloud.js) and the browser Web Speech API
  *   6. Read aloud (speechSynthesis), keep screen awake (Wake Lock)
  *   7. Buttons, settings, start-up
  * ===================================================================== */
-import { Segmenter } from './vad.js';
+import { Segmenter, Batcher } from './vad.js';
 import { SPEECH_MODELS, TRANSLATOR_MODEL, defaultModelKey } from './models.js';
+import { geminiTranslate, GEMINI_MODELS, DEFAULT_GEMINI_MODEL } from './cloud.js';
 
 /* ---------------- 1. SETTINGS, DEVICE, ELEMENTS ---------------- */
 const MAX_LINES = 400;          // sentences kept on screen (long sermons)
@@ -28,7 +31,8 @@ const qs = new URLSearchParams(location.search);
 const $ = id => document.getElementById(id);
 const ui = Object.fromEntries(['toggle','status','log','interimEn','interimDe','engine','mode','modeTitle','showDe','size',
   'clear','speak','jump','settingsBtn','settings','setup','modelPick','modelNote','deviceInfo','downloadBtn','progress',
-  'barFill','progressText','modelSetting','task','testFile','reloadModel','engineInfo','meterFill'].map(id => [id, $(id)]));
+  'barFill','progressText','modelSetting','task','testFile','reloadModel','engineInfo','meterFill',
+  'badge','useCloudBtn','geminiKey','geminiModel'].map(id => [id, $(id)]));
 
 const saved = (k, d) => localStorage.getItem('st-' + k) ?? d;
 const save = (k, v) => localStorage.setItem('st-' + k, v);
@@ -92,11 +96,13 @@ function currentConfig() {
   const useGPU = canUseGPU();
   const variant = pickVariant(m);
   const task = m.canTranslateDirectly ? ui.task.value : 'mt';
+  if (engine === 'gemini') return { key: 'gemini', cloud: true };   // nothing to download
   if (engine === 'webspeech') {   // fallback only needs the text translator
     return { key: 'webspeech', modelId: null, useTranslator: true, device: 'wasm', mb: TRANSLATOR_MODEL.mb };
   }
   return {
-    key: [modelKey, task, useGPU ? 'webgpu' : 'wasm'].join('/'),
+    // The dtype is part of the key, so after a model update the setup screen (with the new size) shows again.
+    key: [modelKey, task, useGPU ? 'webgpu' : 'wasm', JSON.stringify(variant.dtype)].join('/'),
     modelId: m.id, dtype: variant.dtype, device: useGPU ? 'webgpu' : 'wasm', task,
     useTranslator: task === 'mt', mb: variant.mb + (task === 'mt' ? TRANSLATOR_MODEL.mb : 0)
   };
@@ -105,6 +111,7 @@ function currentConfig() {
 /** Start the worker and load the models. Shows a progress bar while downloading. */
 function loadModels() {
   const cfg = currentConfig();
+  if (cfg.cloud) return cloudReady();
   if (worker && loadedKey === cfg.key && workerReady) return Promise.resolve();
   if (loading && loading.key === cfg.key) return loading.promise;      // already loading this one
   if (worker) worker.terminate();
@@ -159,10 +166,12 @@ function enqueueAudio(audio) {
   pump();
 }
 function pump() {
-  if (busy || !workerReady || !queue.length) { hint(busy ? '… translating' : ''); return; }
+  const cloud = isCloud();
+  if (busy || (!cloud && !workerReady) || !queue.length) { hint(busy ? '… translating' : ''); return; }
   busy = true; hint('… translating');
   const audio = queue.shift();
-  worker.postMessage({ type: 'transcribe', id: nextId++, audio }, [audio.buffer]);
+  if (cloud) runCloud(audio);
+  else worker.postMessage({ type: 'transcribe', id: nextId++, audio }, [audio.buffer]);
 }
 function onResult(r) {
   busy = false;
@@ -185,7 +194,7 @@ async function startMic() {
   const mute = audioCtx.createGain(); mute.gain.value = 0;      // keeps the graph running, silently
   source.connect(node).connect(mute).connect(audioCtx.destination);
 
-  segmenter = new Segmenter(piece => enqueueAudio(piece));
+  segmenter = makeSegmenter(piece => enqueueAudio(piece));
   node.port.onmessage = e => segmenter.push(e.data);
   meterTimer = setInterval(() => { ui.meterFill.style.width = Math.min(100, segmenter.level * 1500) + '%'; }, 120);
 
@@ -212,14 +221,68 @@ async function testWithFile(file) {
   const off = new OfflineAudioContext(1, Math.ceil(decoded.duration * 16000), 16000);
   const src = off.createBufferSource(); src.buffer = decoded; src.connect(off.destination); src.start();
   const pcm = (await off.startRendering()).getChannelData(0);
-  const seg = new Segmenter(piece => { queue.push(piece); pump(); });   // no skipping in test mode
+  const seg = makeSegmenter(piece => { queue.push(piece); pump(); });   // no skipping in test mode
   for (let i = 0; i < pcm.length; i += 1600) seg.push(pcm.subarray(i, i + 1600));
   seg.flush();
   status(`Test file queued (${decoded.duration.toFixed(0)} s). Translations appear below.`);
 }
 window.__testWithUrl = async url => testWithFile(await (await fetch(url)).blob());
 
-/* ---------------- 5. FALLBACK: BROWSER WEB SPEECH (may be cloud!) ---------------- */
+/* ---------------- 5a. CLOUD ENGINE: GOOGLE GEMINI (cloud.js) ---------------- */
+// Each piece of speech is sent to Gemini, which writes Standard German + English in one step.
+const isCloud = () => ui.engine.value === 'gemini';
+const recentGerman = [];   // last sentences, sent along as context (names, half sentences)
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function cloudReady() {
+  if (worker) { worker.terminate(); worker = null; workerReady = false; loadedKey = ''; }   // free the memory of local models
+  ui.setup.hidden = true; ui.progress.hidden = true;
+  ui.engineInfo.textContent = `Engine: ${GEMINI_MODELS[ui.geminiModel.value].label} in the cloud (audio is sent to Google)`;
+  if (!ui.geminiKey.value.trim()) {
+    ui.settings.hidden = false; ui.settingsBtn.setAttribute('aria-expanded', 'true'); ui.geminiKey.focus();
+    ui.toggle.disabled = true;
+    status('Paste your Gemini API key in the settings above (free at aistudio.google.com/apikey).', true);
+    return Promise.reject(new Error('Gemini API key missing – paste it in ⚙︎ Settings.'));
+  }
+  ui.toggle.disabled = false;
+  if (!running) status('Ready (cloud). Tap the big button.');
+  return Promise.resolve();
+}
+
+/** Send one piece to Gemini; on "too many requests" or a network hiccup wait and try again (twice). */
+async function runCloud(audio, attempt = 0) {
+  const t0 = performance.now();
+  try {
+    const r = await geminiTranslate({ audio, apiKey: ui.geminiKey.value.trim(), model: ui.geminiModel.value, context: recentGerman });
+    if (r.german) { recentGerman.push(r.german); if (recentGerman.length > 3) recentGerman.shift(); }
+    onResult({ german: r.german, english: r.english, ms: Math.round(performance.now() - t0), seconds: audio.length / 16000 });
+  } catch (e) {
+    console.error('Cloud error:', e);
+    if (e.fatal) {   // wrong or missing key: every next piece would fail too, so stop and say why
+      stopAll('Cloud: ' + e.message, true);   // (while busy, the last flushed piece is only queued…)
+      queue.length = 0; busy = false; hint('');   // …and dropped here, so no more requests with the bad key
+      if (e.status) { ui.settings.hidden = false; ui.settingsBtn.setAttribute('aria-expanded', 'true'); }
+      return;
+    }
+    if (e.retryAfterSec && attempt < 2 && running) {
+      status(e.message, true);
+      await sleep(Math.min(60, e.retryAfterSec) * 1000);
+      return runCloud(audio, attempt + 1);
+    }
+    status('Cloud: ' + (e.message || String(e)) + ' (this piece was skipped)', true);
+    busy = false; pump();
+  }
+}
+
+/** The pause detector, set up for the chosen engine. Same interface (push / flush / level) for both. */
+function makeSegmenter(onPiece) {
+  if (!isCloud()) return new Segmenter(onPiece);
+  const batcher = new Batcher(onPiece);
+  const seg = new Segmenter(piece => batcher.push(piece), { pauseMs: 700, maxSec: 15 });
+  return { push: x => seg.push(x), flush: () => { seg.flush(); batcher.flush(); }, get level() { return seg.level; } };
+}
+
+/* ---------------- 5b. FALLBACK: BROWSER WEB SPEECH (may be cloud!) ---------------- */
 // Chrome sends this audio to Google; Safari may use Apple servers. Only the
 // German -> English step runs on the device here.
 let rec = null;
@@ -337,7 +400,22 @@ function syncModel(key) {
 ui.modelPick.onchange = () => syncModel(ui.modelPick.value);
 ui.modelSetting.onchange = () => syncModel(ui.modelSetting.value);
 ui.task.onchange = () => save('task', ui.task.value);
-ui.engine.onchange = () => save('engine', ui.engine.value);
+function applyEngine() {
+  const cloud = isCloud();
+  document.body.classList.toggle('engine-gemini', cloud);
+  ui.badge.textContent = cloud ? 'cloud' : ui.engine.value === 'webspeech' ? 'browser speech' : 'on-device';
+  ui.badge.style.background = cloud || ui.engine.value === 'webspeech' ? '#fc3' : '';
+}
+ui.engine.onchange = () => {
+  save('engine', ui.engine.value); applyEngine();
+  if (running) stopAll('Engine changed – tap the big button to start again.');
+  if (isCloud()) cloudReady().catch(() => {});
+  else if (saved('installed', '') === currentConfig().key) loadModels().catch(() => {});
+  else { ui.setup.hidden = false; ui.toggle.disabled = !workerReady; status('Choose a model and tap Download (one time).'); }
+};
+ui.geminiKey.onchange = () => { save('geminiKey', ui.geminiKey.value.trim()); if (isCloud()) cloudReady().catch(() => {}); };
+ui.geminiModel.onchange = () => { save('geminiModel', ui.geminiModel.value); if (isCloud()) cloudReady().catch(() => {}); };
+ui.useCloudBtn.onclick = () => { ui.engine.value = 'gemini'; ui.engine.onchange(); };
 ui.reloadModel.onclick = () => { if (running) stopAll(); loadModels().catch(() => {}); };
 ui.downloadBtn.onclick = () => {
   ui.downloadBtn.disabled = true;
@@ -373,13 +451,20 @@ async function init() {
   const wantedModel = qs.get('model') || saved('model', defaultModelKey(device));
   syncModel(Object.hasOwn(SPEECH_MODELS, wantedModel) ? wantedModel : defaultModelKey(device));
   ui.task.value = SPEECH_MODELS[ui.modelSetting.value].canTranslateDirectly ? saved('task', 'mt') : 'mt';
-  ui.engine.value = saved('engine', 'whisper');
+  for (const [id, gm] of Object.entries(GEMINI_MODELS)) ui.geminiModel.add(new Option(gm.label, id));
+  const gmSaved = saved('geminiModel', DEFAULT_GEMINI_MODEL);
+  ui.geminiModel.value = Object.hasOwn(GEMINI_MODELS, gmSaved) ? gmSaved : DEFAULT_GEMINI_MODEL;
+  ui.geminiKey.value = saved('geminiKey', '');
+  const engineSaved = qs.get('engine') || saved('engine', 'whisper');
+  ui.engine.value = ['whisper', 'gemini', 'webspeech'].includes(engineSaved) ? engineSaved : 'whisper';
+  applyEngine();
   ui.mode.value = qs.get('mode') || saved('mode', 'sermon'); applyMode(ui.mode.value);
   ui.speak.checked = saved('speak', '0') === '1';
   applySize();
 
-  // Already downloaded before? Then skip the setup screen and load straight from the device.
-  if (saved('installed', '') === currentConfig().key) { ui.setup.hidden = true; loadModels().catch(() => {}); }
+  // Cloud engine chosen: nothing to download. Already downloaded before? Then skip the setup screen.
+  if (isCloud()) cloudReady().catch(() => {});
+  else if (saved('installed', '') === currentConfig().key) { ui.setup.hidden = true; loadModels().catch(() => {}); }
   else status('Choose a model and tap Download (one time).');
 }
 init();

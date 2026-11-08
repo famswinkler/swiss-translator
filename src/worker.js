@@ -11,6 +11,7 @@
  *   {type:'result', id, german, english, ms}
  */
 import { pipeline, env } from './lib/transformers.min.js';
+import { truecaserFromPipeline } from './truecase.js';
 
 // Models come from huggingface.co once, then from the browser's Cache API ("transformers-cache").
 env.allowLocalModels = false;
@@ -20,7 +21,7 @@ env.backends.onnx.wasm.wasmPaths = new URL('./lib/', self.location.href).href;
 // Use several CPU cores when the page is "cross-origin isolated" (sw.js arranges that).
 env.backends.onnx.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
 
-let asr = null, translator = null, settings = null;
+let asr = null, translator = null, truecase = null, settings = null;
 
 const report = (data) => self.postMessage({ type: 'progress', ...data });
 
@@ -43,7 +44,10 @@ async function translateGerman(german) {
   if (!german) return '';
   const words = german.split(/\s+/).length;
   // Capital first letter + full stop helps the small translator model a bit.
-  const input = sentenceCase(german) + (/[.!?]$/.test(german) ? '' : '.');
+  let input = sentenceCase(german) + (/[.!?]$/.test(german) ? '' : '.');
+  // The Swiss model writes all in lowercase; German nouns need their capital letter or the
+  // translator misreads them ("der wanderer" -> "the pixie"). See truecase.js.
+  if (truecase) input = truecase(input);
   const out = await translator(input, { max_new_tokens: Math.ceil(words * 2.5) + 10, no_repeat_ngram_size: 4 });
   return cleanRepeats(out[0].translation_text);
 }
@@ -69,6 +73,7 @@ self.onmessage = async ({ data }) => {
         translator = await pipeline('translation', data.translatorId, {
           revision: REVISIONS[data.translatorId], dtype: data.translatorDtype, device: 'wasm', progress_callback: p => report({ ...p, part: 'translator' })
         });
+        truecase = truecaserFromPipeline(translator);   // null if the word list can't be read: then no capitals are added
       }
       // Warm-up run (first run compiles shaders / allocates memory) so the first real sentence is quicker.
       if (asr) await asr(new Float32Array(16000), { language: 'german', task: 'transcribe', max_new_tokens: 4 }).catch(() => {});

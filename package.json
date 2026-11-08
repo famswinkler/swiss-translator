@@ -1,7 +1,7 @@
 {
   "name": "sermon-translator",
   "version": "2.0.0",
-  "description": "On-device Swiss German -> English live captions (Whisper in the browser via transformers.js). Pure static site.",
+  "description": "Swiss German -> English live captions: on-device Whisper in the browser (transformers.js), or optional Google Gemini cloud engine. Pure static site.",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,9 @@
     "serve": "node serve.mjs dist 8080",
     "test:node": "node tests/node-pipeline-test.mjs",
     "test:browser": "node tests/browser-test.mjs",
-    "test:offline": "node tests/offline-test.mjs"
+    "test:offline": "node tests/offline-test.mjs",
+    "test:cloud": "node tests/cloud-test.mjs",
+    "test:truecase": "node tests/truecase-test.mjs"
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.1",
