@@ -11,6 +11,17 @@ Written 14 Nov 2026 as a hand-off for another AI (Opus 5.5 or similar). Sections
 > Nobody has published an independent Swiss German comparison of the 2026 cloud engines, so **Phase 0 (the bake-off)
 > decides the engine. Do not skip it.**
 
+## 0. Decisions by the owner (14 Nov 2026)
+
+| Topic | Decision | Effect on the plan |
+|---|---|---|
+| Budget | Not a limit, as long as quality is OK | Rank engines by quality first, delay second, cost last. Use the strongest models |
+| Cloud | OK, also for prayer meetings | Cloud is the main path. On-device is only an offline fallback |
+| Mac | Available | **Build a native iPhone app** (lock screen + reliable AirPods). The PWA stays as it is |
+| Users | One listener (the owner's wife) now. Broadcast to more listeners later, if it works well | Personal API keys in the app first. Relay and web listener page are Phase 3 |
+| Google Translate | Already tried: not good with Swiss German | Gemini Live Translate is probably the same engine family, so do not assume it wins. It stays in the bake-off as one candidate |
+| Test sermon | https://youtu.be/37_2RC14xjM | Phase 0 reference audio. Private testing only, never committed |
+
 ---
 
 ## 1. What we have today (v1, this repo)
@@ -55,7 +66,7 @@ dialect until Phase 0.
 
 | Engine | What the sources say | Open questions |
 |---|---|---|
-| **Gemini Live Translate** (`gemini-3.5-live-translate-preview` **[verify]**) | Google docs: real-time speech-to-speech translation, 70+ languages, audio input only. German listed as `de`; Swiss German **not listed** | Dialect quality. Session length limit and resumption. Text transcripts alongside audio. Price. Whether a free tier covers it |
+| **Gemini Live Translate** (`gemini-3.5-live-translate-preview` **[verify]**) | Google docs: real-time speech-to-speech translation, 70+ languages, audio input only. German listed as `de`; Swiss German **not listed** | The owner found the Google Translate app (same family) weak on Swiss German, so expect the same here until the bake-off shows otherwise. Session length limit and resumption. Text transcripts alongside audio |
 | **OpenAI `gpt-realtime-translate`** **[verify]** | Released May 2026. 70+ input languages, 13 output languages. Own endpoint `/v1/realtime/translations`. About $0.034/min per a third-party aggregator | Dialect quality. Confirm price on OpenAI's page |
 | **Grok Voice Agent API** | Realtime voice, 25+ languages. No dedicated translation mode found. Language list not published | Whether Swiss German is understood at all. Would need an "interpreter" system prompt |
 
@@ -69,8 +80,14 @@ dialect until Phase 0.
 | **ElevenLabs Scribe v2 Realtime** | <150 ms, 90+ languages. Swiss German not named | Dialect quality |
 | **Azure Speech `de-CH`** | Long-standing Swiss German locale | No 2026 numbers found |
 
-Translator for 2b: **Claude** (Haiku 5.5 for speed, Sonnet 5.5 for quality) or **Gemini Flash**, streaming, with the
-system prompt in section 7.1. This is where church vocabulary and context get fixed.
+| **Large multimodal model on short audio chunks** (Gemini Pro / Flash audio in → English text out) **[verify]** | Skips the German transcript: the model hears the dialect itself and translates with full context | Not streaming: 5–10 s chunks, so more delay. May be the best quality. Must be in the bake-off |
+
+Translator for 2b: **Claude** or **Gemini**, streaming, with the system prompt in section 7.1. Budget is not a limit,
+so test the strong models too (Claude Sonnet 5.5 and Opus 5.5, Gemini Pro) next to the fast ones (Haiku 5.5, Gemini
+Flash) and pick by quality at an acceptable delay. This step is where church vocabulary and context get fixed.
+
+Best-quality idea to test: **two passes**. A fast pass gives the live caption and voice. A slower, stronger pass
+re-translates each finished paragraph for the saved transcript.
 
 ### 2c. On-device (offline, private)
 
@@ -92,7 +109,7 @@ that is harmless wording variation, but it is why the translator step needs cont
 - **Claude:** no audio input or realtime voice endpoint found in the API **[verify]**. Use it for the **text translation** step and to **build the app**.
 - **Grok:** realtime voice API exists. Unproven for Swiss German and no translation mode. Bake-off candidate only.
 - **Important:** the Gemini / Claude / Grok *app subscriptions* do not include API usage. The app needs **API keys**, billed per use (a 90-minute service should cost cents to a few francs, depending on engine).
-- **Zero-build baseline, try this Sunday:** the **Google Translate app → Live Translate** works on iOS with any headphones (German → English, 70+ languages, Gemini-based). Swiss German is not listed. If it already copes with your preacher, that tells us Gemini Live Translate is the engine to build on.
+- **Baseline already known:** the Google Translate app (Live Translate, Gemini-based) does not handle Swiss German well, per the owner. So the favourite before testing is a **Swiss-capable speech-to-text engine plus a strong LLM translator**, or a large multimodal model that hears the audio directly.
 - Apple's own AirPods Live Translation supports German (Germany) only, and needs AirPods Pro 2 / AirPods 4 ANC or newer.
 
 ---
@@ -115,8 +132,10 @@ mic ─► capture ─► 16 kHz │ A  s2s-cloud   : audio ─► Live Translat
 - **Private / offline**: engine C. Default suggestion for prayer meetings (see section 5).
 
 **Engine interface (JS, PWA)**
+Shown in JS for brevity; the Swift app uses the same shape as a protocol with async streams.
+
 ```js
-// src/engines/<name>.js
+// engines/<name>
 export default {
   id, label, needsKey, sendsAudioToCloud,
   async start({ onPartial, onFinal, onAudio, onStatus, glossary, context }) {},
@@ -135,10 +154,12 @@ export default {
 - Never store audio. Transcript stays on the device unless the user taps Share.
 
 **API keys**
-- Personal use: the user pastes their own key in Settings. Stored in `localStorage` on that phone only. Never committed, never sent anywhere except the provider.
-- Sharing the app with others later: add a small relay (for example a Cloudflare Worker) that hands out short-lived tokens. Out of scope until needed.
+- Personal use: the user pastes their own key in Settings. Stored in the iOS Keychain on that phone only. Never committed, never sent anywhere except the provider.
+- Broadcast later (Phase 3): a small relay holds the keys and listeners need none.
 
-**PWA or native?** Start as a PWA (no Mac, no App Store, reuses v1). Go native only if the device tests in Phase 2 fail.
+**PWA or native? Decided: native.** A Mac is available, and lock-screen use and clean AirPods routing matter for a
+90-minute service. The PWA stays as it is (free, offline, no install) and later becomes the web listener page for
+the broadcast.
 
 | Need | PWA (Safari, Home Screen) | Native (SwiftUI) |
 |---|---|---|
@@ -155,29 +176,30 @@ export default {
 
 | Phase | Goal | Done when |
 |---|---|---|
-| **0 Bake-off** | Pick the engine with evidence | A side-by-side report on real sermon audio, and a named winner for audio (A) and for text (B) |
-| **1 PWA v2 captions** | Engine plug-ins, streaming captions, glossary, transcript export, WebGPU spike | Winner B runs live on the iPhone with partial captions under ~2 s behind the speaker |
-| **2 PWA v2 audio** | English voice in AirPods, mic picker, route checks | 30 minutes continuous listening on the iPhone 17 Pro Max with AirPods, no feedback, no drift |
-| **3 Native (only if needed)** | Lock-screen use, reliable AirPods routing, WhisperKit offline | Phase 2 device checklist had a hard fail that matters to you |
-| **Later** | One phone at the sound desk broadcasts to many listeners | Several people ask for it |
+| **0 Bake-off** (on the Mac) | Pick the engines with evidence | A side-by-side report on the test sermon, scored by the owner, with a named winner for text and for audio |
+| **1 Native app: captions** | SwiftUI app, winning text engine, streaming captions, glossary, transcript | Live captions on the iPhone 17 Pro Max, under ~3 s behind the speaker, for a full sermon |
+| **2 Native app: audio** | English voice in AirPods, lock-screen use | 90 minutes with the screen locked, AirPods in, no echo, no drift, survives a call and a network drop |
+| **3 Broadcast** | One phone (or the sound desk) sends, many listen | A second person follows on their own phone through a link, with no API key |
 
-**Test audio for Phase 0 (you provide):** 10–15 minutes from a real sermon and 5 minutes of a prayer meeting from
-your own church (with permission), recorded on the iPhone from a normal seat. Add the names of the speakers' dialects
-if you know them. The Zürich fixture in `tests/audio/` stays as a regression test.
+**Test audio for Phase 0:** the sermon at https://youtu.be/37_2RC14xjM. Download the audio on the Mac for private
+testing (for example with `yt-dlp -x`), convert to 16 kHz mono WAV, and keep it in `tests/bakeoff/audio/`
+(git-ignored). Do not commit or publish it. Use three 5-minute cuts: start, middle, and the closing prayer if there
+is one. If possible also record 5 minutes in the real room from a normal seat: room echo changes the result a lot.
+The Zürich fixture in `tests/audio/` stays as a regression test.
 
-**Phase 2 device checklist (iPhone 17 Pro Max, current iOS, AirPods in)**
+**Device checklist (iPhone 17 Pro Max, current iOS, AirPods in)**
 1. Which microphone is active (iPhone or AirPods)? Can the app select the iPhone mic?
 2. Does the AirPods sound stay high quality while the mic is on, or drop to phone-call quality?
 3. Does the translated voice leak back into the mic (echo loop)?
 4. Does it survive: an incoming call, Siri, taking one AirPod out, 60 minutes on battery, a network drop?
-5. Screen locked: does it stop? (Expected yes for the PWA. Workaround: wake lock + low brightness.)
-6. Better input: a USB-C audio interface or cable from the sound desk. Does Safari offer it as a mic?
+5. Screen locked, phone in the pocket or on the seat: does it keep running for 90 minutes?
+6. Better input: a USB-C audio interface or cable from the sound desk. Does the app see it as a mic?
 
 ---
 
 ## 5. Privacy and consent
 
-- Cloud engines send the room's audio to a third party. For a **sermon** that is usually fine. For a **prayer meeting**, people share personal things: ask the group first, or use the on-device engine or a Swiss-hosted one.
+- Cloud is approved by the owner, also for prayer meetings. Cloud engines still send the room's audio to a third party, so tell the group when the app is used in a prayer meeting.
 - Show a clear badge on screen: "Cloud (Google)" / "On this device".
 - No audio is stored. Transcripts stay local, with one "Delete transcript" button.
 - Model licence: the Swiss-tuned Whisper is CC BY-NC 4.0 (non-commercial only).
@@ -203,93 +225,101 @@ Task: build an engine bake-off under tests/bakeoff/ so we can choose the speech 
    output = JSON lines {t_audio, t_wall, kind: partial|final, de, en}. For speech-to-speech engines also save the
    returned audio as WAV.
    Candidates: Gemini Live Translate, OpenAI realtime translate, Soniox (STT + its translation),
-   Suisse Speech API, Gemini transcribe, the repo's current on-device pipeline (baseline),
+   Suisse Speech API, Gemini transcribe, ElevenLabs Scribe realtime, Azure de-CH,
+   a large multimodal model fed 5–10 s audio chunks (audio in, English text out),
+   the Swiss-tuned Whisper turbo run locally on the Mac (stand-in for WhisperKit on the phone),
    and Grok voice if its API accepts the task.
    For every STT engine, also run its German text through the translator prompt in section 7.1 with
-   Claude Haiku 5.5, Claude Sonnet 5.5 and Gemini Flash.
+   Claude Haiku 5.5, Sonnet 5.5 and Opus 5.5, and Gemini Flash and Pro. Budget is not a limit: rank by quality.
 3. API keys come from environment variables only. Skip an engine cleanly when its key is missing.
    Never print or commit a key.
-4. tests/bakeoff/run.mjs runs all available engines on every file in tests/bakeoff/audio/ (git-ignored;
-   use tests/audio/zurich16k.wav when it is empty) and writes report.html: one row per ~10 s of audio,
+4. Test audio: the sermon named in section 4 of the plan. Tell the user the exact commands to download and cut it
+   on their Mac into tests/bakeoff/audio/ (git-ignored). Never commit it.
+   tests/bakeoff/run.mjs runs all available engines on every file there (use tests/audio/zurich16k.wav when it
+   is empty) and writes report.html: one row per ~10 s of audio,
    one column per engine, plus per engine: median and p95 delay behind the speaker, cost per hour,
    dropped or invented sentences, reconnects.
 5. Add a simple human scoring sheet (0 = wrong, 1 = gist, 2 = correct, per row) saved to JSON, and a summary table.
    Do not invent an automatic quality score: we have no reference translation.
 6. Finish with a short RESULTS.md: what was run, what was skipped and why, the numbers, and a recommendation
-   for (A) speech-to-speech and (B) text. State plainly where the evidence is thin.
+   for (A) speech-to-speech and (B) text, and whether the two-pass idea in section 2b is worth it.
+   State plainly where the evidence is thin.
 
 Do not change src/ in this task. Commit on the working branch and open a draft PR.
 ```
 
-### 6.1 Phase 1: PWA v2, captions
+### 6.1 Phase 1: native app, captions
 
 ```text
 Read docs/BUILD-PLAN.md and tests/bakeoff/RESULTS.md.
 
-Task: turn the app into engine plug-ins and add the winning cloud text engine, keeping everything that works.
+Task: create a SwiftUI app in ios/ (iOS 26+, iPhone only, tuned for iPhone 17 Pro Max) for one listener.
 
-1. Refactor without changing behaviour: move the current Whisper + opus-mt path behind the engine interface
-   in section 3 (src/engines/on-device.js). All three existing tests must still pass.
-2. Add src/engines/<winner-B>.js: streaming STT plus streaming LLM translation with the prompt from section 7.1.
-   Partial captions update in place; a line is locked when final. Keep a rolling context of the last ~6 final
-   lines for the translator. Auto-reconnect and fallback as in "Rules for every engine".
-3. Settings: engine picker with a visible badge (cloud provider name, or "On this device"), API key fields
-   (localStorage only, masked, with a "Test key" button), glossary editor preloaded from section 7.3,
-   context line (speaker, church, topic, Bible passage if known).
-4. Transcript: keep the full session in memory and IndexedDB, with Share / Copy / Download (.txt and .md with
-   timestamps, English with German underneath) and a Delete button. No audio is ever stored.
-5. WebGPU spike for the offline engine: let ?device=webgpu force WebGPU on phones (today canUseGPU() blocks it),
-   and add a hidden "Try Swiss model on this phone" button that loads the q4f16 Swiss turbo and reports
-   speed versus real time and whether the tab survived. Do not make it a default.
-6. Update the service worker so cloud calls are never cached and the app shell still works offline.
-7. Tests: a mock engine for the headless browser test (partial then final lines, a forced disconnect,
-   a fallback). Keep the offline test. Update README honestly, including measured delay on a real run.
+1. Audio capture with AVAudioEngine at 16 kHz mono. Input picker (built-in mic, AirPods, USB-C interface),
+   live level meter, the active input shown by name.
+2. An Engine protocol matching section 3 (async streams for partial lines, final lines, translated audio, status).
+   Implement the winning text engine from the bake-off: streaming speech-to-text over URLSessionWebSocketTask,
+   then streaming LLM translation with the prompt in section 7.1, a rolling context of the last ~6 final lines,
+   the glossary and the context line. If the bake-off recommends the two-pass idea, re-translate each finished
+   paragraph with the stronger model for the saved transcript.
+3. Captions screen: one big Start button, large text with adjustable size, partial text that updates in place,
+   lines that lock when final, auto-scroll with a "jump to live" button, optional German underneath.
+4. Settings: engine picker, API keys in the Keychain (masked, with a "Test key" button), glossary editor
+   preloaded from section 7.3, context line (speaker, church, topic, Bible passage if known).
+5. Transcript: saved on the device per meeting, with Share / Copy / export (.txt and .md with timestamps)
+   and Delete. Audio is never stored.
+6. Robustness: auto-reconnect with backoff, session resumption where the API has it, fallback to the next
+   engine after three failures with a one-line notice. Keep the screen awake while running.
+7. Unit tests with a mock engine (partial then final, forced disconnect, fallback) and a file-input mode that
+   plays a WAV through the same pipeline, so the test sermon can be replayed on the simulator.
+8. README section: how to build and install from Xcode on the owner's Mac, step by step, for a non-developer.
 
-Constraints: plain JS, no framework, no new build step beyond build.mjs. Keys never leave the device except to
-the provider. Keep the big-button simplicity: a listener must be able to start with one tap.
+State what you could not test without a real device and hand the user a short checklist.
 ```
 
-### 6.2 Phase 2: audio in AirPods
+### 6.2 Phase 2: native app, AirPods audio and lock screen
 
 ```text
-Read docs/BUILD-PLAN.md (sections 3 and 4) and the current src/.
+Read docs/BUILD-PLAN.md (sections 3 and 4), tests/bakeoff/RESULTS.md and the ios/ app.
 
-Task: add live English audio for AirPods.
+Task: add live English audio for AirPods and make the app run with the screen locked.
 
-1. Add src/engines/<winner-A>.js (speech-to-speech). Stream mic PCM up, receive translated audio and, if the API
-   offers them, input and output transcripts for the captions. Use the system instruction in section 7.2.
-   Handle the provider's session time limit with resumption so a 90-minute service runs unattended.
-2. Playback: a jitter-buffered Web Audio queue (AudioWorklet), gapless, with volume, a "catch up" rule
-   (if more than ~8 s behind, speed up slightly or skip to the newest sentence boundary, never cut mid-word),
-   and a pause button. Remove the speechSynthesis.cancel() behaviour that drops sentences.
-3. For the text engine, add optional TTS of final lines through the same queue (provider TTS first,
-   speechSynthesis as fallback).
-4. Microphone: list inputs with enumerateDevices, default to the iPhone's built-in mic when AirPods are
-   connected, show the active mic name and a live level meter, and warn when the AirPods mic is in use.
-   Turn echoCancellation on while audio is playing.
-5. Add a diagnostics page (?diag) that records, for the Phase 2 device checklist in section 4: active input
-   and output, sample rates, AudioContext state changes, reconnects, delay, and dropouts. One button copies
-   the report as text so the user can paste it back to us.
-6. Document in the README exactly what was tested on a real iPhone and what was only tested in headless Chrome.
-   You cannot test AirPods routing yourself: say so, and hand the user the checklist.
+1. AVAudioSession .playAndRecord with A2DP output to the AirPods and the built-in mic as preferred input.
+   Log currentRoute on every route change and show it on a diagnostics screen. Developers report that this
+   routing is unreliable (see the Apple forum links in section 9), so detect and warn when iOS falls back to
+   the AirPods mic or to phone-call audio quality, and offer a manual input picker.
+2. Add the winning speech-to-speech engine (system instruction in section 7.2) if the bake-off found one that
+   is good enough. Otherwise speak the final lines of the text engine with the best streaming TTS voice
+   (provider TTS first, AVSpeechSynthesizer as offline fallback). Captions keep running in both cases.
+3. Playback queue: gapless, with volume, pause, and a "catch up" rule (if more than ~8 s behind, speed up
+   slightly or skip to the newest sentence boundary; never cut mid-word, never drop a sentence silently).
+4. Background audio mode so it keeps running with the screen locked. Handle interruptions (calls, Siri,
+   one AirPod removed) and resume by itself. Handle the provider's session time limit with resumption so a
+   90-minute service runs unattended.
+5. Lock-screen caption line as a Live Activity, and play/pause from the AirPods stem, if time allows.
+6. Offline fallback (optional): WhisperKit with a Core ML conversion of the Swiss-tuned Whisper turbo
+   (document the conversion; licence CC BY-NC 4.0) plus Apple's Translation framework for German to English.
+7. Diagnostics screen with a "Copy report" button covering the device checklist in section 4.
+
+You cannot test AirPods routing yourself: say so, and hand the user the checklist and TestFlight steps.
 ```
 
-### 6.3 Phase 3: native app (only if Phase 2 fails the checklist)
+### 6.3 Phase 3: broadcast to several listeners
 
 ```text
-Read docs/BUILD-PLAN.md and the diagnostics report the user pasted from Phase 2.
+Read docs/BUILD-PLAN.md and the ios/ app.
 
-Task: create a SwiftUI app in ios/ (iOS 26+, iPhone only) that reuses the same engine design.
+Task: let one sender share the live translation with other listeners who have no app and no API key.
 
-- AVAudioSession .playAndRecord with A2DP output to AirPods and the built-in mic as preferred input; log
-  currentRoute on every route change and show it in a diagnostics screen. Background audio mode so it keeps
-  running with the screen locked. Handle interruptions (calls, Siri) and resume.
-- Engines: the cloud winners over URLSessionWebSocketTask; offline engine with WhisperKit running a Core ML
-  conversion of the Swiss-tuned Whisper turbo (document the conversion; licence CC BY-NC 4.0) plus Apple's
-  Translation framework for German to English.
-- Keys in the Keychain. Same glossary, context line, transcript export and privacy badge as the PWA.
-- Live Activity / lock-screen caption line if time allows.
-- State what you could not test without a device, and give the user a TestFlight checklist.
+1. A small relay (for example a Cloudflare Worker with a Durable Object): the sender's app posts caption
+   lines (and, if cheap enough, the translated audio stream); listeners subscribe over WebSocket or SSE.
+   A room is opened with a short code or QR link and closes when the sender stops. Nothing is stored.
+2. Sender mode in the iOS app: a "Share" button that shows the QR code and the listener count.
+3. Listener page: reuse the existing PWA (src/) as a light web page with big captions, optional read-aloud
+   and an optional second target language translated on the relay. No account, no key.
+4. Protect the relay: the sender authenticates with a secret, rooms are rate-limited, provider keys live only
+   in the relay's secret store and never reach listeners.
+5. Document costs per listener-hour and what the church must tell people about cloud processing.
 ```
 
 ---
@@ -386,13 +416,11 @@ voice, staying as close behind the speaker as you can.
 
 ---
 
-## 8. Open decisions for the owner
+## 8. Still open
 
-1. **Budget:** is a few francs per service for a cloud engine acceptable?
-2. **Prayer meetings:** cloud allowed with consent, or on-device / Swiss-hosted only?
-3. **Native app:** do you have a Mac, and would you pay for an Apple Developer account, if the PWA cannot do lock-screen or clean AirPods routing?
-4. **Audio source:** phone at your seat, or can you get a feed from the sound desk?
-5. **Who uses it:** only you, or several listeners (needs the relay / broadcast later)?
+1. **Audio source:** phone at the seat, or a feed from the sound desk? Decide after the first room test.
+2. **Apple Developer account** (CHF 99/yr): without it, the app installed from Xcode must be re-installed every 7 days. Needed for TestFlight.
+3. **API accounts:** keys for the bake-off candidates (Google AI Studio, Anthropic, OpenAI, Soniox, Suisse Speech, ElevenLabs, Azure, xAI). Missing keys only mean that engine is skipped.
 
 ## 9. Sources (searched 14 Nov 2026)
 
