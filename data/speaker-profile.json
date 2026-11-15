@@ -1,0 +1,35 @@
+{
+  "about": "Profile of the main speaker. The app sends it to the translator and, where the engine allows, to the speech-to-text engine as hints. Everything marked TODO is filled by build prompt 6.0b from real transcripts. Do not put the speaker's full name here: this repository is public.",
+  "status": "empty template. Nobody has listened to the clip yet (the authoring session cannot hear audio).",
+  "reference_clip": {
+    "title": "Church Experience 11/08/2026 - Spirit vs. Flesh - What were you thinking?",
+    "date": "2026-11-08",
+    "length_minutes": 25,
+    "local_path": "tests/bakeoff/audio/pastor-2026-11-08.m4a",
+    "note": "Private test audio, git-ignored. Never commit it."
+  },
+  "speaker": {
+    "role": "pastor",
+    "dialect": "TODO: region, heard from the clip (for example Zürich, Bern, Ostschweiz)",
+    "pace": "TODO: slow / medium / fast, long or short pauses",
+    "mixes_standard_german": "TODO: when (Bible readings, quotes, prayers?)",
+    "english_words_used": ["TODO: for example Church, Experience, Worship"],
+    "bible_translation_read_aloud": "TODO: for example Schlachter 2000, Luther 2017, Neue Genfer, Hoffnung für alle"
+  },
+  "favourite_phrases": [
+    { "heard": "TODO: phrase as the speech engine writes it", "means": "TODO", "en": "TODO" }
+  ],
+  "names": {
+    "people": ["TODO: first names of people he mentions often"],
+    "places": ["TODO"],
+    "church_terms": ["TODO: names of ministries, groups, series"]
+  },
+  "known_misrecognitions": [
+    { "engine_writes": "TODO: wrong text the engine produces", "he_said": "TODO: correct German", "en": "TODO" }
+  ],
+  "sermon_context": {
+    "series": "TODO",
+    "topic": "Spirit versus flesh",
+    "likely_passages": "TODO: take from the transcript, do not guess"
+  }
+}

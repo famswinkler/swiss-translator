@@ -20,3 +20,6 @@ recordings/
 *.webm
 *.m4a
 *.mp3
+# private bake-off audio and transcripts (sermons): never commit
+tests/bakeoff/audio/
+tests/bakeoff/out/
