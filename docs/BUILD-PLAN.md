@@ -112,6 +112,22 @@ that is harmless wording variation, but it is why the translator step needs cont
 - **Baseline already known:** the Google Translate app (Live Translate, Gemini-based) does not handle Swiss German well, per the owner. So the favourite before testing is a **Swiss-capable speech-to-text engine plus a strong LLM translator**, or a large multimodal model that hears the audio directly.
 - Apple's own AirPods Live Translation supports German (Germany) only, and needs AirPods Pro 2 / AirPods 4 ANC or newer.
 
+### 2e. Teaching the app the pastor's speech and church words
+
+"Learning his accent" can mean three different things. Do them in this order.
+
+| Level | What it is | Effort | Status |
+|---|---|---|---|
+| **1 Vocabulary and context** | The translator gets the church glossary (`data/church-glossary.json`: about 170 words with dialect forms and translation traps, plus German Bible book names) and the speaker profile (`data/speaker-profile.json`). Speech engines that accept keyword or custom-vocabulary hints get the same words | None at run time | Glossary written. Profile is an empty template |
+| **2 Speaker profile from real sermons** | Transcribe his sermons with the best engine, then extract his dialect, favourite phrases, names, the Bible translation he reads, and the words the engine keeps getting wrong, with corrections | One session (prompt 6.0b) | To do. Needs the reference clip |
+| **3 Fine-tuning a speech model on his voice** | Train the Swiss Whisper model further on his sermons | Needs roughly 10+ hours of his audio with corrected transcripts, a GPU, and re-conversion for the phone. Only helps the on-device engine | Only if levels 1 and 2 are not enough |
+
+Reference clip from the owner: a 25-minute sermon by the pastor, "Spirit vs. Flesh – What were you thinking?"
+(8 Nov 2026). It is private test audio: keep it at `tests/bakeoff/audio/pastor-2026-11-08.m4a` (git-ignored).
+**Nobody has listened to it yet**: the session that wrote this plan cannot hear audio and had no speech model
+available. Topic-specific traps are already in the glossary (for example *Fleisch* = flesh, never meat;
+*Geist* = Spirit, never mind or ghost; *Wandel* = walk, not change).
+
 ---
 
 ## 3. Target architecture
@@ -181,7 +197,7 @@ the broadcast.
 | **2 Native app: audio** | English voice in AirPods, lock-screen use | 90 minutes with the screen locked, AirPods in, no echo, no drift, survives a call and a network drop |
 | **3 Broadcast** | One phone (or the sound desk) sends, many listen | A second person follows on their own phone through a link, with no API key |
 
-**Test audio for Phase 0:** the sermon at https://youtu.be/37_2RC14xjM. Download the audio on the Mac for private
+**Test audio for Phase 0:** the pastor's 25-minute clip (section 2e) and the sermon at https://youtu.be/37_2RC14xjM. Download the audio on the Mac for private
 testing (for example with `yt-dlp -x`), convert to 16 kHz mono WAV, and keep it in `tests/bakeoff/audio/`
 (git-ignored). Do not commit or publish it. Use three 5-minute cuts: start, middle, and the closing prayer if there
 is one. If possible also record 5 minutes in the real room from a normal seat: room echo changes the result a lot.
@@ -248,6 +264,35 @@ Task: build an engine bake-off under tests/bakeoff/ so we can choose the speech 
 Do not change src/ in this task. Commit on the working branch and open a draft PR.
 ```
 
+### 6.0b Speaker profile (run right after the bake-off)
+
+```text
+Read docs/BUILD-PLAN.md section 2e, data/church-glossary.json, data/speaker-profile.json and
+tests/bakeoff/RESULTS.md.
+
+Task: build the pastor's speaker profile from real audio. Level 2 in section 2e.
+
+1. Ask the user to place the reference clip at tests/bakeoff/audio/pastor-2026-11-08.m4a (git-ignored) and,
+   if they have them, two or three more sermons by the same pastor. Never commit audio or full transcripts:
+   this repository is public.
+2. Transcribe everything with the two best speech engines from the bake-off. Where they disagree, mark the
+   passage and resolve it with a strong multimodal model listening to that audio span. Do not guess.
+3. From the transcripts fill data/speaker-profile.json: dialect region, pace, when he switches to Standard
+   German, English words he uses, the Bible translation he reads from (compare his readings with the
+   published wording), favourite phrases, names of people, places and ministries (first names only), and a
+   list of recurring misrecognitions with the correct German and English.
+4. Extend data/church-glossary.json: add words and dialect forms he actually uses that are missing, fix the
+   approximate 'gsw' spellings to match what the engines write for him, and remove nothing.
+5. Wire both files in: the translator prompt (section 7.1) gets the glossary and profile; each speech engine
+   that supports keyword boosting, custom vocabulary or a context prompt gets the 'de' and 'gsw' forms and
+   the names. Record per engine which hint mechanism exists (check the primary docs).
+6. Measure the gain: re-run the bake-off on a part of the clip that was NOT used to build the profile,
+   with and without glossary and profile, and have the user score both. Report the difference honestly,
+   including "no measurable gain" if that is the result.
+7. Give a recommendation on level 3 (fine-tuning): is it worth it given the scores, how many hours of
+   audio exist, what it would cost, and what the user would have to correct by hand.
+```
+
 ### 6.1 Phase 1: native app, captions
 
 ```text
@@ -265,7 +310,7 @@ Task: create a SwiftUI app in ios/ (iOS 26+, iPhone only, tuned for iPhone 17 Pr
 3. Captions screen: one big Start button, large text with adjustable size, partial text that updates in place,
    lines that lock when final, auto-scroll with a "jump to live" button, optional German underneath.
 4. Settings: engine picker, API keys in the Keychain (masked, with a "Test key" button), glossary editor
-   preloaded from section 7.3, context line (speaker, church, topic, Bible passage if known).
+   preloaded from data/church-glossary.json and data/speaker-profile.json, context line (speaker, church, topic, Bible passage if known).
 5. Transcript: saved on the device per meeting, with Share / Copy / export (.txt and .md with timestamps)
    and Delete. Audio is never stored.
 6. Robustness: auto-reconnect with backoff, session resumption where the API has it, fallback to the next
@@ -352,7 +397,9 @@ Rules
 10. Plain words, short sentences. This may be read aloud by a voice.
 
 Context for this meeting: {{context_line}}
-Glossary (German or dialect → English). Always prefer these: {{glossary}}
+About the speaker (dialect, habits, names, known recognition errors and their corrections): {{speaker_profile}}
+Glossary (German or dialect → English, with traps to avoid). Always prefer these: {{glossary}}
+Bible book names: German names differ (1. Mose = Genesis, Hiob = Job, Offenbarung = Revelation ...). Use: {{bible_books}}
 Previous lines (context only): {{last_lines}}
 New segment to translate: {{segment}}
 ```
@@ -374,45 +421,12 @@ voice, staying as close behind the speaker as you can.
 - Context: {{context_line}}
 ```
 
-### 7.3 Starter glossary (edit in the app)
+### 7.3 Glossary and speaker profile
 
-| German / dialect | English |
-|---|---|
-| Gmeind, Gemeinde | church, congregation |
-| Predigt, Predig | sermon |
-| bätte, beten / Gebät, Gebet | to pray / prayer |
-| Fürbitte | intercession |
-| Lobpreis, Aabätig (Anbetung) | praise, worship |
-| Gnad, Gnade | grace |
-| Busse, Umkehr | repentance |
-| Bekehrung | conversion |
-| Wiedergeburt | new birth, being born again |
-| Erlösig, Erlösung | redemption, salvation |
-| Rechtfertigung | justification |
-| Heiligung | sanctification |
-| Vergäbig, Vergebung | forgiveness |
-| Sünd, Sünde | sin |
-| Heiland, Erlöser | Saviour, Redeemer |
-| Herr, Herrgott | LORD |
-| Heilige Geischt, Heiliger Geist | Holy Spirit |
-| Geistesgaben | gifts of the Spirit |
-| Zungenrede, Sprachengebet | speaking in tongues |
-| Weissagung, Prophetie | prophecy |
-| Abendmahl | the Lord's Supper, communion |
-| Taufe, Tauf | baptism |
-| Säge, Segen | blessing |
-| Jünger, Jüngerschaft | disciple, discipleship |
-| Älteste | elders |
-| Hauskreis, Kleingruppe | small group, home group |
-| Stille Zeit | quiet time |
-| Zeugnis | testimony |
-| Opfer, Kollekte | offering |
-| Rych Gottes, Reich Gottes | Kingdom of GOD |
-| Herrlichkeit | glory |
-| Uferstehig, Auferstehung | resurrection |
-| Evangelium | gospel |
-| Bund | covenant |
-| Glaube, Glaube(n) | faith |
+- `data/church-glossary.json`: about 170 church words in German, approximate dialect spelling and preferred
+  English, with a "trap" note where general translators go wrong, plus the German → English Bible book names.
+- `data/speaker-profile.json`: template for the pastor, filled by prompt 6.0b.
+- Both are editable in the app (Settings). Send only the categories that fit the meeting if the prompt gets long.
 
 ---
 
